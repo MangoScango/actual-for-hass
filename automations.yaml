@@ -92,7 +92,7 @@ automation:
       account_id: '{{ (state_attr("sensor.actual_budget", "accounts") |  selectattr(''name'',
         ''equalto'', target_account_name) | first).get(''id'', none) }}'
       transaction_list:
-      - amount: '{{ amount_str | replace('','', '''') | float * -100 }}'
+      - amount: '{{ (amount_str | replace('','', '''') | float * -100) | round(0) }}'
         payee_name: '{{ payee_raw | trim }}'
         imported_payee: '{{ payee_raw | trim }}'
         date: '{{ now().strftime(''%Y-%m-%d'') }}'
