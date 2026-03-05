@@ -1,0 +1,117 @@
+rest_command:
+  actual_get_budgets:
+    url: "https://actual-api.example.com/v1/budgets"
+    method: GET
+
+  actual_get_accounts:
+    url: "https://actual-api.example.com/v1/budgets/{{sync_id}}/accounts"
+    method: GET
+    headers:
+      x-api-key: !secret actual_api_key
+
+  actual_get_groups:
+    url: "https://actual-api.example.com/v1/budgets/{{sync_id}}/months/{{month}}/categorygroups"
+    method: GET
+    headers:
+      x-api-key: !secret actual_api_key
+
+  actual_sync_accounts:
+    url: https://actual-api.example.com/v1/budgets/{{sync_id}}/accounts/banksync
+    method: post
+    headers:
+      x-api-key: !secret actual_api_key
+    timeout: 300
+
+  actual_get_uncategorized:
+    url: https://actual-api.example.com/v1/budgets/{{sync_id}}/run-query
+    method: post
+    headers:
+      x-api-key: !secret actual_api_key
+    payload: >
+      {
+        "ActualQLquery": {
+          "table": "transactions",
+          "calculate" : {"$count": "*"},
+          "filter" : { "category" : null,"tombstone": false,"is_parent": false,"transfer_id": null,"account.offbudget": false}
+        }
+      }
+    content_type: "application/json"
+
+template:
+- triggers:
+    - trigger: time_pattern
+      minutes: "/10"
+    - trigger: homeassistant
+      event: start
+    - trigger: event
+      event_type: event_template_reloaded
+    - trigger: event
+      event_type: call_service
+      event_data:
+        domain: homeassistant
+        service: update_entity
+        service_data:
+          entity_id:
+            - sensor.actual_budget #update this if you rename the sensor
+  actions:
+    - action: rest_command.actual_get_budgets
+      response_variable: budget_resp
+    - variables:
+        budget_file_name: "My Finances" #update this if you use multiple budget files
+        sync_id: >
+          {% if budget_resp is mapping and 'content' in budget_resp %}
+            {% set data = budget_resp['content'].get('data', []) %}
+            {% set budgets = data | selectattr('state', 'eq', 'remote') | list %}
+            {% set count = budgets | count %}
+            {% if count == 1 %}
+              {{ budgets[0].get('groupId', 'unknown') }}
+            {% elif count > 1 %}
+              {{ (budgets | selectattr('name', 'eq', budget_file_name) | map(attribute='groupId') | first) | default('unknown') }}
+            {% else %}
+            unknown
+            {% endif %}
+          {% else %}
+          unknown
+          {% endif %}
+    - condition: template
+      value_template: "{{ sync_id != 'unknown' }}"
+    - action: rest_command.actual_get_groups
+      data:
+        sync_id: "{{ sync_id }}"
+        month: "{{ now().strftime('%Y-%m') }}"
+      response_variable: groups_response
+    - action: rest_command.actual_get_uncategorized
+      data:
+        sync_id: "{{ sync_id }}"
+      response_variable: uncategorized_response
+    - action: rest_command.actual_get_transactions
+      data:
+        sync_id: "{{ sync_id }}"
+      response_variable: transactions_response
+    - action: rest_command.actual_get_accounts
+      data:
+        sync_id: "{{ sync_id }}"
+      response_variable: accounts_response
+  sensor:
+    - name: Actual Budget
+      unique_id: actual_budget_current_month
+      unit_of_measurement: "Uncategorized"
+      icon: mdi:cash-sync
+      state: >
+        {{ uncategorized_response.get('content', {}).get('data', -1) }}
+      attributes:
+        sync_id: "{{ sync_id }}"
+        accounts: >
+          {{ accounts_response.get('content', {}).get('data', []) }}
+        groups: >
+          {{ groups_response.get('content', {}).get('data', []) }}
+        transactions: >
+          {{ transactions_response.get('content', {}).get('data', []) }}
+        overbudget: >
+          {{
+            groups_response.get('content', {}).get('data', []) | 
+            map(attribute='categories') | sum(start=[]) | 
+            selectattr('balance', 'defined') | 
+            selectattr('balance', 'lt', 0) | 
+            list
+          }}

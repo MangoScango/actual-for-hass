@@ -1,0 +1,112 @@
+automation:
+- alias: Actual Auto Sync
+  description: ""
+  triggers:
+    - trigger: time_pattern
+      hours: /3
+  conditions: []
+  actions:
+    - action: rest_command.actual_sync_accounts
+      data:
+        sync_id: |
+          {{ state_attr('sensor.actual_budget','sync_id') }}
+  mode: single
+
+- alias: Actual Budget Uncategorized Transaction
+  description: ''
+  triggers:
+  - trigger: numeric_state
+    entity_id:
+    - sensor.actual_budget
+    above: 0
+  conditions: []
+  actions:
+  - action: notify.admins
+    metadata: {}
+    data:
+      title: Actual Budget
+      message: A New Transaction from {{ (state_attr('sensor.actual_budget', 'transactions')
+        | selectattr('category', 'equalto', none)| first | default({'payee':'Somewhere'},true)
+        )['payee'] }} Needs Categorization
+      data:
+        url: https://actual.example.com/categories/uncategorized
+        clickAction: https://actual.example.com/categories/uncategorized
+        notification_icon: mdi:cash
+        icon_url: https://actual.example.com/android-chrome-192x192.png
+  mode: single
+
+- alias: Actual Over Budget
+  description: ''
+  triggers:
+  - trigger: template
+    value_template: '{{ state_attr(''sensor.actual_budget'',''overbudget'') | count
+      > 0 }}'
+  conditions: []
+  actions:
+  - action: notify.admins
+    metadata: {}
+    data:
+      title: Actual Budget
+      message: '{{ (state_attr(''sensor.actual_budget'',''overbudget'')| first)[''name'']
+        }} is over budget by {{ "${:,.2f}".format((state_attr(''sensor.actual_budget'',''overbudget'')|
+        first)[''balance''] | abs / 100) }}'
+      data:
+        url: https://actual.example.com/
+        clickAction: https://actual.example.com/
+        notification_icon: mdi:cash
+        icon_url: https://actual.example.com/android-chrome-192x192.png
+  mode: single
+
+- alias: Actual Budget IMAP Importer
+  triggers:
+  - trigger: event
+    event_type: imap_content
+    event_data:
+      sender: no.reply.alerts@chase.com
+    id: chase
+  - trigger: event
+    event_type: imap_content
+    event_data:
+      sender: usbank@notifications.usbank.com
+    id: usbank
+  conditions:
+  - condition: template
+    value_template: "{% if trigger.id == 'chase' %}\n  {{ 'transaction with' in trigger.event.data.subject
+      }}\n{% elif trigger.id == 'usbank' %}\n  {{ 'new transaction' in trigger.event.data.subject
+      }}\n{% else %}\n  false\n{% endif %}\n"
+  actions:
+  - variables:
+      amount_str: "{% if trigger.id == 'chase' %}\n  {{ trigger.event.data.subject
+        | regex_findall_index('\\$([0-9,.]+)') }}\n{% elif trigger.id == 'usbank'
+        %}\n  {{ trigger.event.data.text | regex_findall_index('charged \\$([0-9,.]+)')
+        }}\n{% endif %}\n"
+      payee_raw: "{% if trigger.id == 'chase' %}\n  {{ trigger.event.data.subject
+        | regex_findall_index('with (.*)') }}\n{% elif trigger.id == 'usbank' %}\n
+        \ {{ trigger.event.data.text | regex_findall_index('at\\s+(.*?)\\.\\s+A purchase')
+        }}\n{% endif %}\n"
+      target_account_name: "{% if trigger.id == 'chase' %}\n  Prime Chase\n{% elif
+        trigger.id == 'usbank' %}\n  US Bank Cash+\n{% endif %}\n"
+  - action: rest_command.actual_import_transactions
+    data:
+      sync_id: '{{ state_attr(''sensor.actual_budget'', ''sync_id'') }}'
+      account_id: '{{ (state_attr("sensor.actual_budget", "accounts") |  selectattr(''name'',
+        ''equalto'', target_account_name) | first).get(''id'', none) }}'
+      transaction_list:
+      - amount: '{{ amount_str | replace('','', '''') | float * -100 }}'
+        payee_name: '{{ payee_raw | trim }}'
+        imported_payee: '{{ payee_raw | trim }}'
+        date: '{{ now().strftime(''%Y-%m-%d'') }}'
+        cleared: false
+        imported_id: '{{ trigger.event.data.date }}'
+  - action: imap.seen
+    metadata: {}
+    data:
+      entry: '' #select your imap integration
+      uid: '{{ trigger.event.data.uid }}'
+  - action: homeassistant.update_entity
+    metadata: {}
+    data:
+      entity_id:
+      - sensor.actual_budget
+  mode: queued
+  max: 10

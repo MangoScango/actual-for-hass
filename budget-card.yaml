@@ -1,0 +1,91 @@
+type: markdown
+content: >
+  <center>
+
+  {% macro usd(v, colored=False) -%}
+    {%- if v is number -%}
+      {%- set formatted = "-${:,.2f}".format((v/100)|abs) if v < 0 else "${:,.2f}".format(v/100) -%}
+      {%- if colored and v < 0 -%}
+        <font color="error">{{ formatted }}</font>
+      {%- elif colored -%}
+        <font color="success">{{ formatted }}</font>
+      {%- else -%}
+        {{ formatted }}
+      {%- endif -%}
+    {%- else -%}
+      &nbsp;
+    {%- endif -%}
+  {%- endmacro %}
+
+  | Category | Budgeted | Spent | Balance
+
+  |---|---:|---:|---:|
+
+  {%- for group  in state_attr('sensor.actual_budget', 'groups')  if not
+  group.hidden %}
+
+  | **{{ group.name  }}** | **{{ usd(group.get('budgeted')) }}** | **{{
+  usd(group.get('spent')) }}** | **{{
+  usd(group.get('balance',group.get('received'))) }}**
+
+  {%- for cat  in group.categories  if not cat.hidden %}
+
+  | {{ cat.name  }} | {{ usd(cat.get('budgeted')) }} | {{ usd(cat.get('spent'))
+  }} | {{ usd(cat.get('balance',cat.get('received')),true) }}
+
+  {%- endfor %} {%- endfor %} </center>
+text_only: true
+card_mod:
+  style:
+    ha-markdown:
+      $: |
+        :host {
+          --markdown-table-border-color: transparent;
+          border-collapse: collapse;
+          container-type: inline-size;
+        }
+        th {
+          background-color: var(--secondary-background-color);
+          padding: 10px 10px !important;
+          color: var(--primary-color);
+          text-transform: uppercase;
+          font-size: 0.8rem;
+          border-bottom: 2px solid var(--primary-color) !important;
+        }
+        th:nth-child(n+2) {
+          text-align: right !important;
+        }
+        td {
+          background-color: var(--ha-card-background);
+          border-bottom: 1px solid var(--outline-variant, rgba(127, 127, 127, 0.1)) !important;
+          width:0.1% !important;
+          white-space: nowrap !important;
+        }
+        tr:hover td {
+          background-color: color-mix(in srgb, var(--primary-color), transparent 90%);
+        }
+        td:last-child, th:last-child {
+          padding-right: 6px !important;
+        }
+        td:first-child, th:first-child {
+          padding-left: 6px !important;
+        }
+        td:first-child:not(:has(strong)) {
+            padding-left: 15px !important;
+        }
+        @container (max-width: 400px) {
+          td {
+            padding: 6px 2px !important;
+            font-size: 0.8rem;
+          }
+          th {
+            padding: 8px 2px !important;
+            font-size: 0.7rem;
+          }
+        }
+        font[color="success"] {
+          color: var(--success-color) !important;
+        }
+        font[color="error"] {
+          color: var(--error-color) !important;
+        }
