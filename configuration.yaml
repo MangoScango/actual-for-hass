@@ -37,6 +37,35 @@ rest_command:
       }
     content_type: "application/json"
 
+  actual_get_transactions:
+    url: https://actual-api.example.com/v1/budgets/{{sync_id}}/run-query
+    method: post
+    headers:
+      x-api-key: !secret actual_api_key
+    payload: >
+      {
+        "ActualQLquery": {
+          "table": "transactions",
+          "select": [
+            "date",{"payee": "payee.name"}, {"category" : "category.name"},"amount"
+          ],
+          "filter" : {"tombstone" : false, "account.offbudget": false},
+          "limit": 12
+        }
+      }
+    content_type: "application/json"
+
+  actual_import_transactions:
+    url: https://actual-api.example.com/v1/budgets/{{sync_id}}/accounts/{{account_id}}/transactions/import
+    method: post
+    headers:
+      x-api-key: !secret actual_api_key
+    payload: >
+      {
+        "transactions": {{transaction_list | to_json }}
+      }
+    content_type: "application/json"
+
 template:
 - triggers:
     - trigger: time_pattern
